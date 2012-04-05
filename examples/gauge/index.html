@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+   <script src="gauge.js" type="text/javascript"></script>
+</head>
+<body>
+
+<canvas id="gauge1" width="150" height="80"></canvas>
+<span id="text1">0</span>
+<br /><br />
+
+<canvas id="gauge2" width="150" height="80"></canvas>
+<span id="text2">0</span>
+
+<script type="text/javascript">
+   var g1 = new Gauge('gauge1');
+   g1.bind('text1');
+   g1.setValue(75);
+
+   var g2 = new Gauge('gauge2', {'gaugeColor':'#ddd', 'needleColor':'#555'});
+   g2.bind('text2');
+   g2.max = 30;
+   g2.setValue(10, function() {
+      setTimeout(function() { g2.setValue(28); }, 1500);
+   });
+</script>
+
+</body>
+</html>
