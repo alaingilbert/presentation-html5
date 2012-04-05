@@ -1,0 +1,293 @@
+<!doctype html>
+<html>
+<head>
+
+<title>Sprite example</title>
+
+
+<script type="text/javascript">
+
+// Global variables
+var ctx        = null         // Canvas context
+  , width      = 500          // Canvas width
+  , height     = 100          // Canvas height
+  , sprite     = null         // Texture containing the sprites
+  , background = null         // Background
+  , interval   = null         // SetInterval ID
+  , fps        = 1000 / 60    // 60fps
+  , lastFrame  = null         // Timestamp of the last frame
+  , mario      = null         // Mario object
+  , right      = false
+  , left       = false;
+
+
+//------------------------------------------------------------------------------
+/**
+ * Class Mario
+ */
+var Mario = function () {
+   this.x           = 10;
+   this.y           = 30;
+   this.width       = 30;
+   this.height      = 35;
+   this.oldPosition = { x: this.x, y: this.y };
+   this.lastChange  = new Date();
+   this.frame       = 0;
+   this.frames      = [ { x: 200, y: 75,  width: 30, height: 35 }
+                      , { x: 320, y: 75,  width: 30, height: 35 }
+                      , { x: 360, y: 75,  width: 30, height: 35 }
+                      , { x: 201, y: 155, width: 30, height: 35 }
+                      , { x: 241, y: 155, width: 30, height: 35 }
+                      , { x: 281, y: 155, width: 30, height: 35 }
+
+                      , { x: 160, y: 75,  width: 30, height: 35 }
+                      , { x: 40,  y: 75,  width: 30, height: 35 }
+                      , { x: 0,   y: 75,  width: 30, height: 35 }
+                      , { x: 159, y: 155, width: 30, height: 35 }
+                      , { x: 119, y: 155, width: 30, height: 35 }
+                      , { x: 79,  y: 155, width: 30, height: 35 }
+                      ];
+   this.timePerFrame   = 80;
+   this.tmp            = 0;
+   this.beginWalkRight = [ 0, 1, 2, 0, 1, 2, 0, 1, 2 ];
+   this.walkRight      = [ 3, 4, 5 ];
+   this.endWalkRight   = [ 2, 1, 0 ];
+
+   this.beginWalkLeft  = [ 6, 7, 8, 6, 7, 8, 6, 7, 8 ];
+   this.walkLeft       = [ 9, 10, 11 ];
+   this.endWalkLeft    = [ 8, 7, 6 ];
+   this.animState      = 'idle';
+};
+
+
+/**
+ * 
+ */
+Mario.prototype.changeState = function (state) {
+   this.tmp = 0;
+   this.animState = state;
+};
+
+
+/**
+ * Mario's update function
+ */
+Mario.prototype.update = function (deltaTime) {
+   // Keep the last position
+   this.oldPosition = { x: this.x, y: this.y };
+
+   switch (this.animState) {
+   case 'idle':
+      if (right)     { this.changeState('beginWalkRight'); }
+      else if (left) { this.changeState('beginWalkLeft');  }
+      break;
+   case 'beginWalkRight':
+      if (right) {
+         this.next(this.beginWalkRight, 1, 'walkRight');
+         this.moveRight(deltaTime, 130);
+      } else {
+         this.changeState('endWalkRight');
+      }
+      break;
+   case 'walkRight':
+      if (right) {
+         this.next(this.walkRight, 0);
+         this.moveRight(deltaTime, 190);
+      } else {
+         this.changeState('endWalkRight');
+      }
+      break;
+   case 'endWalkRight':
+      this.next(this.endWalkRight, 1, 'idle');
+      this.moveRight(deltaTime, 70);
+      break;
+   case 'beginWalkLeft':
+      if (left) {
+         this.next(this.beginWalkLeft, 1, 'walkLeft');
+         this.moveLeft(deltaTime, 130);
+      } else {
+         this.changeState('endWalkLeft');
+      }
+      break;
+   case 'walkLeft':
+      if (left) {
+         this.next(this.walkLeft, 0);
+         this.moveLeft(deltaTime, 190);
+      } else {
+         this.changeState('endWalkLeft');
+      }
+      break;
+   case 'endWalkLeft':
+      this.next(this.endWalkLeft, 1, 'idle');
+      this.moveLeft(deltaTime, 70);
+      break;
+   }
+};
+
+
+/**
+ * Move left according to the time
+ */
+Mario.prototype.moveLeft = function (deltaTime, speed) {
+   this.x -= Math.floor(deltaTime / 1000 * speed);
+   if (this.x + this.width < 0) { this.x = width; }
+};
+
+
+/**
+ * Move right according to the time
+ */
+Mario.prototype.moveRight = function (deltaTime, speed) {
+   this.x += Math.floor(deltaTime / 1000 * speed);
+   if (this.x > width) { this.x = -this.width; }
+};
+
+
+/**
+ * 
+ */
+Mario.prototype.next = function (frames, loop, nextState) {
+   if (new Date().getTime() - this.lastChange.getTime() > this.timePerFrame) {
+      if (this.tmp + 1 >= frames.length) { this.tmp = 0; }
+      else                               { this.tmp++;   }
+      if (this.tmp == 0 && loop == 1) {
+         if (nextState) { this.changeState(nextState); }
+         return true;
+      }
+      this.frame = frames[this.tmp];
+      this.lastChange = new Date();
+   }
+   return false;
+};
+
+
+/**
+ * Mario's render function
+ */
+Mario.prototype.paint = function (deltaTime) {
+   var frame = this.frames[this.frame];
+   // Render mario
+   ctx.drawImage(sprite,
+                 frame.x, frame.y, frame.width, frame.height,
+                 this.x, this.y, this.width, this.height);
+};
+//------------------------------------------------------------------------------
+
+
+/**
+ * Initialize everything
+ */
+var init = function () {
+   ctx = document.getElementById('canvas').getContext('2d');
+   mario = new Mario();                                                       // Create a Mario instance
+   // Load the sprites
+   sprite = new Image();                                                      // Create the texture
+   sprite.src = 'mario.png';
+   sprite.onload = function () {;                                             // Texture is done loading
+      // Load the background
+      background = new Image();
+      background.src = 'background.png';
+      background.onload = function () {                                       // Background is done loading
+         ctx.drawImage(background, 0, 0, width, height);                      // Draw the whole background only once
+         start();                                                             // Start the animation
+      }
+   };
+};
+
+
+/**
+ * Start the animation
+ */
+var start = function () {
+   lastFrame = new Date();
+   interval = setInterval(cycle, fps);                                        // Start the animation (60 fps)
+};
+
+
+/**
+ * Stop the animation
+ */
+var stop = function () {
+   clearInterval(interval);
+};
+
+
+/**
+ * The game loop
+ */
+var cycle = function () {
+   var deltaTime = new Date().getTime() - lastFrame.getTime();                // Time since the last frame
+   paint(deltaTime);                                                          // Render every objects in our scene
+   update(deltaTime);                                                         // Update every objects in our scene
+   lastFrame = new Date();                                                    // Save the timestamp for this frame
+};
+
+
+/**
+ * Render our scene
+ */
+var paint = function (deltaTime) {
+   var zone = { x      : mario.oldPosition.x                                  // Zone to redraw
+              , y      : mario.oldPosition.y
+              , width  : mario.width
+              , height : mario.height
+              };
+
+   ctx.clearRect(zone.x, zone.y, zone.width, zone.height);                    // Clear the canvas
+
+   if (zone.x + zone.width >= width) { zone.x = width - zone.width; }
+   else if (zone.x <= 0)             { zone.x = 1;                  }
+
+   ctx.drawImage(background,                                                  // Redraw the background
+                 zone.x, zone.y, zone.width, zone.height,
+                 zone.x, zone.y, zone.width, zone.height);
+
+   mario.paint(deltaTime);                                                    // Render mario
+
+   ctx.strokeRect(0.5, 0.5, width - 1, height - 1);                           // Draw a border
+};
+
+
+/**
+ * Update our scene
+ */
+var update = function (deltaTime) {
+   mario.update(deltaTime);                                                   // Update mario
+};
+
+
+var keydown = function (evt) {
+   switch (evt.keyCode) {
+   case 39: right = true; break;
+   case 37: left  = true; break;
+   }
+   //console.log(evt.keyCode);
+};
+
+
+var keyup = function (evt) {
+   switch (evt.keyCode) {
+   case 39: right = false; break;
+   case 37: left  = false; break;
+   }
+};
+
+
+// When the dom is ready, init
+document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('keydown', keydown);
+document.addEventListener('keyup', keyup);
+window.onblur  = function () { stop();  };
+window.onfocus = function () { start(); };
+</script>
+
+
+</head>
+<body>
+
+
+<canvas id="canvas" width="500" height="100"></canvas>
+
+
+</body>
+</html>

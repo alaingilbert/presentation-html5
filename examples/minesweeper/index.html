@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Minesweeper</title>
+
+<script type="text/javascript">
+var canvas      = null
+  , c           = null
+  , interval    = null
+  , casesWidth  = 19
+  , casesHeight = 13
+  , nbMines     = 50
+  , caseWidth   = null
+  , caseHeight  = null
+  , map         = []
+  , maa         = []
+  , last_click  = null
+  , start       = null
+  , startTime   = null
+  , time        = null
+  , flags       = 0
+  , safe        = 0
+  , States      = { game: 0, gameover: 1, win: 2 }
+  , state       = States.game
+  , g           = { buttonUp: -2, buttonDown: 0, mine: -4, flag: -1, flagMine: -3 };
+
+
+var rnd = function (min, max) {
+   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+
+var prettyTime = function (timestamp) {
+   if (!start) return '00:00:00';
+   var s = Math.floor(timestamp/1000);
+   var m = Math.floor(s / 60)
+   var h = Math.floor(m / 60)
+   s -= m*60;
+   m -= h*60;
+   s = s < 10 ? '0' + s : s;
+   m = m < 10 ? '0' + m : m;
+   h = h < 10 ? '0' + h : h;
+   return h + ':' + m + ':' + s;
+}
+
+
+var getScroll = function () {
+   var scrOfX = 0, scrOfY = 0;
+   if( typeof( window.pageYOffset ) == 'number' ) {
+      //Netscape compliant
+      scrOfY = window.pageYOffset;
+      scrOfX = window.pageXOffset;
+   } else if( document.body && ( document.body.scrollLeft || document.body.scrollTop ) ) {
+      //DOM compliant
+      scrOfY = document.body.scrollTop;
+      scrOfX = document.body.scrollLeft;
+   } else if( document.documentElement && ( document.documentElement.scrollLeft || document.documentElement.scrollTop ) ) {
+      //IE6 standards compliant mode
+      scrOfY = document.documentElement.scrollTop;
+      scrOfX = document.documentElement.scrollLeft;
+   }
+   return { x: scrOfX, y: scrOfY };
+}
+
+
+//--- Drawing functions -------------------------------------------------------
+var drawScores = function () {
+   c.save();
+   c.textBaseline = "top";
+   c.textAlign = "left";
+   c.font = "17px Arial";
+   c.fillStyle = "#000";
+   c.fillText("Flags: ", 10, 10);
+   c.fillText("Time: ", 10, 35);
+   c.textAlign = "right";
+   c.fillText(flags+"/"+nbMines, 130, 10);
+   c.fillText(prettyTime(time - startTime), 130, 35);
+
+   c.font = "14px Arial";
+   c.fillStyle = "#aaa";
+   c.fillText("Copyright Alain Gilbert", canvas.width, 30);
+   c.restore();
+}
+
+
+var drawBoardBorder = function () {
+   c.save();
+   c.beginPath();
+   c.moveTo(0.5, 59.5);
+   c.lineTo(canvas.width-0.5, 59.5);
+   c.lineTo(canvas.width-0.5, canvas.height-0.5);
+   c.lineTo(0.5, canvas.height-0.5);
+   c.closePath();
+
+   c.strokeStyle = "#000";
+   c.lineWidth = 1;
+   c.stroke();
+   c.restore();
+}
+
+
+var drawFlag = function (p) {
+   c.save();
+   var x = Math.round(p.x * caseWidth);
+   var y = Math.round(p.y * caseHeight) + 60;
+   var w = caseWidth;
+   var h = caseHeight;
+
+   // Draw red triangle.
+   c.beginPath();
+   c.moveTo(x+(w/3), y+(h/2));
+   c.lineTo(x+((w/3)*2), y+(h/3));
+   c.lineTo(x+((w/3)*2), y+((h/3)*2));
+   c.lineTo(x+(w/3), y+(h/2));
+   c.closePath();
+
+   c.strokeStyle = "red";
+   c.fillStyle = "red";
+   c.fill();
+
+   // Draw base and pole.
+   c.beginPath();
+   c.moveTo(x+((w/3)*2+0.5), y+(h/3));
+   c.lineTo(x+((w/3)*2+0.5), y+h-(h/4));
+   c.moveTo(x+(w/2), y+h-(h/4));
+   c.lineTo(x+w-(w/5), y+h-(h/4));
+   c.closePath();
+
+   c.strokeStyle = "black";
+   c.lineWidth = 2;
+   c.stroke();
+   c.restore();
+}
+
+
+var drawMine = function (p) {
+   c.save();
+   var x = Math.round(p.x * caseWidth);
+   var y = Math.round(p.y * caseHeight) + 60;
+   var w = caseWidth;
+   var h = caseHeight;
+   var r = w < h ? w/3 : h/3;
+
+   c.fillStyle = "#666";
+   c.beginPath();
+   c.arc(x+w/2, y+h/2, r, 0, 2*Math.PI);
+   c.closePath();
+   c.fill();
+   c.restore();
+}
+
+
+var drawMineExplode = function (p) {
+   c.save();
+   var x = Math.round(p.x * caseWidth);
+   var y = Math.round(p.y * caseHeight) + 60;
+   var w = caseWidth;
+   var h = caseHeight;
+   var r1 = w < h ? w/5 : h/5;
+   var r2 = w < h ? w/3 : h/3;
+
+   // Draw orange circle.
+   c.beginPath();
+   c.arc(x+w/2, y+h/2, r1, 0, 2*Math.PI);
+   c.closePath();
+   c.fillStyle = "#ffa500";
+   c.fill();
+
+   // Draw gray circle.
+   c.beginPath();
+   c.arc(x+w/2, y+h/2, r2, 0, (2*Math.PI)-(2*Math.PI/5), false);
+   c.lineTo(x+w/2, y+h/2);
+   c.closePath();
+   c.fillStyle = "#666";
+   c.fill();
+   c.restore();
+}
+
+
+var drawBoard = function () {
+   c.save();
+   for (var i = 0; i < casesWidth; i++) {
+      for (var j = 0; j < casesHeight; j++) {
+         var x = Math.round(i * caseWidth);
+         var y = Math.round(j * caseHeight) + 60;
+         var w = Math.round(caseWidth);
+         var h = Math.round(caseHeight);
+
+         if (map[i] == undefined || map[i][j] == g.buttonUp) {
+            c.lineWidth = 1;
+            c.strokeStyle = "#aaa";
+            c.strokeRect(x, y, w, h);
+            c.fillStyle = "#ddd";
+            c.fillRect(x, y, w, h);
+         } else if (map[i][j] == g.flag) {
+            // Draw a flag.
+            c.lineWidth = 1;
+            c.strokeStyle = "#aaa";
+            c.strokeRect(x, y, w, h);
+            c.fillStyle = "#ddd";
+            c.fillRect(x, y, w, h);
+
+            drawFlag({ x: i, y: j });
+            if (state == States.gameover && maa[i][j] == 0) {
+               c.strokeStyle = '#000';
+               c.beginPath();
+               c.moveTo(x+(w/5), y+(h/5));
+               c.lineTo(x+w-(w/5), y+h-(h/5));
+               c.moveTo(x+w-(w/5), y+(h/5));
+               c.lineTo(x+(w/5), y+h-(h/5));
+               c.closePath();
+
+               c.lineWidth = 2;
+               c.stroke();
+            }
+         } else {
+            c.lineWidth = 1;
+            c.strokeStyle = "#aaa";
+            c.strokeRect(x, y, w, h);
+            c.fillStyle = "white";
+            c.fillRect(x, y, w, h);
+
+            if (map[i][j] != 0 && map[i][j] != g.flagAndMine) {
+               switch (map[i][j]) {
+               case 1: c.fillStyle = "blue";   break;
+               case 2: c.fillStyle = "green";  break;
+               case 3: c.fillStyle = "red";    break;
+               case 4: c.fillStyle = "navy";   break;
+               case 5: c.fillStyle = "maroon"; break;
+               case 6: c.fillStyle = "aqua";   break;
+               case 7: c.fillStyle = "purple"; break;
+               case 8: c.fillStyle = "black";  break;
+               }
+               
+               c.font = (caseHeight-4)+"px Arial";
+               c.textBaseline = "middle";
+               c.textAlign = "center";
+               c.fillText(map[i][j], x+caseWidth/2, y+caseHeight/2);
+            }
+         }
+
+         if (map[i] != undefined) {
+            if (map[i][j] == g.flagAndMine) {
+               c.lineWidth = 1;
+               c.strokeStyle = "#aaa";
+               c.strokeRect(x, y, w, h);
+               c.fillStyle = "#ddd";
+               c.fillRect(x, y, w, h);
+
+               drawMine({ x: i, y: j });
+               drawFlag({ x: i, y: j });
+            } else if (map[i][j] == g.mine) {
+               c.lineWidth = 1;
+               c.strokeStyle = "#aaa";
+               c.strokeRect(x, y, w, h);
+               c.fillStyle = "#ddd";
+               c.fillRect(x, y, w, h);
+
+               drawMine({ x: i, y: j });
+            }
+         }
+
+      }
+
+      if (state == States.gameover) {
+         var x = Math.round(last_click.x * caseWidth);
+         var y = Math.round(last_click.y * caseHeight) + 60;
+         var w = caseWidth;
+         var h = caseHeight;
+         c.lineWidth = 1;
+         c.strokeStyle = "#aaa";
+         c.strokeRect(x, y, w, h);
+         c.fillStyle = "#ddd";
+         c.fillRect(x, y, w, h);
+
+         drawMineExplode(last_click);
+      }
+   }
+
+   drawBoardBorder();
+   c.restore();
+}
+
+
+var drawWin = function () {
+   c.save();
+   c.fillStyle = "rgba(255, 255, 255, 0.7)";
+   c.fillRect(1, 61, canvas.width-2, canvas.height-62);
+
+   c.font = "50px Arial";
+   c.textBaseline = "top";
+   c.textAlign = "center";
+   c.fillStyle = "Green";
+   c.fillText("You win... hum nan...", canvas.width/2, canvas.height/2 -70);
+   c.fillText("you lost "+prettyTime(time-startTime), canvas.width/2, canvas.height/2 + 0);
+   c.fillText("of your life.", canvas.width/2, canvas.height/2 +70);
+   c.restore();
+}
+//-----------------------------------------------------------------------------
+
+
+var isMine = function (c) {
+   return maa[c.x] && maa[c.x][c.y] && maa[c.x][c.y] == 1;
+}
+
+
+var isFlag = function (c) {
+   return map[c.x] && map[c.x][c.y] && map[c.x][c.y] == -1;
+}
+
+
+var minesAround = function (c) {
+   var m = 0;
+   if (isMine({ x: c.x-1, y: c.y-1 })) { m++; }
+   if (isMine({ x: c.x,   y: c.y-1 })) { m++; }
+   if (isMine({ x: c.x+1, y: c.y-1 })) { m++; }
+   if (isMine({ x: c.x-1, y: c.y   })) { m++; }
+   if (isMine({ x: c.x+1, y: c.y   })) { m++; }
+   if (isMine({ x: c.x-1, y: c.y+1 })) { m++; }
+   if (isMine({ x: c.x,   y: c.y+1 })) { m++; }
+   if (isMine({ x: c.x+1, y: c.y+1 })) { m++; }
+   return m;
+}
+
+
+var showMines = function () {
+   for (var i = 0; i < casesWidth; i++) {
+      for (var j = 0; j < casesWidth; j++) {
+         if (maa[i][j] == 1) {
+            if (map[i][j] == g.buttonUp) {
+               map[i][j] = g.mine;
+            } else if (map[i][j] == g.flag) {
+               map[i][j] = g.flagAndMine;
+            }
+         }
+      }
+   }
+}
+
+
+var flagsAround = function (c) {
+   var m = 0;
+   if (isFlag({ x: c.x-1, y: c.y-1 })) { m++; }
+   if (isFlag({ x: c.x,   y: c.y-1 })) { m++; }
+   if (isFlag({ x: c.x+1, y: c.y-1 })) { m++; }
+   if (isFlag({ x: c.x-1, y: c.y   })) { m++; }
+   if (isFlag({ x: c.x+1, y: c.y   })) { m++; }
+   if (isFlag({ x: c.x-1, y: c.y+1 })) { m++; }
+   if (isFlag({ x: c.x,   y: c.y+1 })) { m++; }
+   if (isFlag({ x: c.x+1, y: c.y+1 })) { m++; }
+   return m;
+}
+
+
+// TODO: Refactoring this shit.
+var showCase = function (c, r) {
+   r = r == undefined;
+   if (map[c.x] == undefined) return false;
+   if (map[c.x][c.y] == g.flag) return true;
+   if (map[c.x][c.y] != g.buttonUp) {
+      if (!r && flagsAround(c) == map[c.x][c.y]) {
+
+         if (map[c.x-1] != undefined) {
+            if (map[c.x-1][c.y-1] != undefined && map[c.x-1][c.y-1] == g.buttonUp) showCase({ x: c.x-1, y: c.y-1 }, false);
+            if (map[c.x-1][c.y]   == g.buttonUp) showCase({ x: c.x-1, y: c.y }, false);
+            if (map[c.x-1][c.y+1] != undefined && map[c.x-1][c.y+1] == g.buttonUp) showCase({ x: c.x-1, y: c.y+1 }, false);
+         }
+
+         if (map[c.x+1] != undefined) {
+            if (map[c.x+1][c.y-1] != undefined && map[c.x+1][c.y-1] == g.buttonUp) showCase({ x: c.x+1, y: c.y-1 }, false);
+            if (map[c.x+1][c.y]   == g.buttonUp) showCase({ x: c.x+1, y: c.y }, false);
+            if (map[c.x+1][c.y+1] != undefined && map[c.x+1][c.y+1] == g.buttonUp) showCase({ x: c.x+1, y: c.y+1 }, false);
+         }
+
+         if (map[c.x][c.y-1] != undefined && map[c.x][c.y-1] == g.buttonUp) showCase({ x: c.x, y: c.y-1 }, false);
+         if (map[c.x][c.y+1] != undefined && map[c.x][c.y+1] == g.buttonUp) showCase({ x: c.x, y: c.y+1 }, false);
+      }
+      return;
+   }
+
+   if (maa[c.x][c.y] == 1) {
+      gameover(c);
+      return false;
+   } else {
+      if (minesAround(c) == 0) {
+         if (map[c.x][c.y] == g.buttonUp) safe++;
+         map[c.x][c.y] = g.buttonDown;
+         showCase({ x: c.x-1, y: c.y-1 });
+         showCase({ x: c.x,   y: c.y-1 });
+         showCase({ x: c.x+1, y: c.y-1 });
+         showCase({ x: c.x-1, y: c.y   });
+         showCase({ x: c.x+1, y: c.y   });
+         showCase({ x: c.x-1, y: c.y+1 });
+         showCase({ x: c.x,   y: c.y+1 });
+         showCase({ x: c.x+1, y: c.y+1 });
+      } else {
+         if (map[c.x][c.y] == g.buttonUp) safe++;
+         map[c.x][c.y] = minesAround(c);
+      }
+   }
+}
+
+
+var initMap = function () {
+   map = new Array(casesWidth);
+   maa = new Array(casesWidth);
+   for (var i = 0; i < casesWidth; i++) {
+      map[i] = new Array(casesHeight);
+      maa[i] = new Array(casesHeight);
+   }
+
+   for (var i = 0; i < casesWidth; i++) {
+      for (var j = 0; j < casesHeight; j++) {
+         map[i][j] = -2;
+         maa[i][j] = 0;
+      }
+   }
+}
+
+
+var mapGenerator = function (c) {
+   this.collision = function(p) {
+      if (maa[p.x][p.y] == 1)           return true;
+      if (p.x == c.x-1 && p.y == c.y-1) return true;
+      if (p.x == c.x   && p.y == c.y-1) return true;
+      if (p.x == c.x+1 && p.y == c.y-1) return true;
+      if (p.x == c.x-1 && p.y == c.y)   return true;
+      if (p.x == c.x   && p.y == c.y)   return true;
+      if (p.x == c.x+1 && p.y == c.y)   return true;
+      if (p.x == c.x-1 && p.y == c.y+1) return true;
+      if (p.x == c.x   && p.y == c.y+1) return true;
+      if (p.x == c.x+1 && p.y == c.y+1) return true;
+      return false;
+   };
+
+   initMap();
+
+   for (var i = 0; i < nbMines; i++) {
+      var p;
+      do {
+         p = { x: rnd(0, casesWidth-1), y: rnd(0, casesHeight-1) };
+      } while(this.collision(p));
+
+      maa[p.x][p.y] = 1;
+   }
+}
+
+
+var gameover = function (p) {
+   state = States.gameover;
+   last_click = p;
+   showMines();
+}
+
+
+var win = function () {
+   state = States.win;
+   showMines();
+}
+
+
+//--- Handlers ----------------------------------------------------------------
+var mouseup = function (e) {
+   switch(state) {
+   case States.game:
+      var x = e.clientX - canvas.offsetLeft + getScroll().x;
+      var y = e.clientY - canvas.offsetTop + getScroll().y;
+      var c = { x: Math.floor(x / caseWidth), y: Math.floor((y - 60) / caseHeight) };
+      if (e.button == 0) {
+         if (!start) {
+            start = true;
+            startTime = new Date();
+            mapGenerator(c);
+         }
+         showCase(c, false);
+         if (safe == casesWidth * casesHeight - nbMines) {
+            win();
+         }
+      } else if (e.button == 2) {
+         if(start) {
+            if (map[c.x][c.y] == -1) {
+               map[c.x][c.y] = -2;
+               flags--;
+            } else if (map[c.x][c.y] == -2) {
+               map[c.x][c.y] = -1;
+               flags++
+            }
+         }
+      }
+      break;
+   case States.gameover:
+   case States.win:
+      if (e.button == 0) {
+         start = false;
+         startTime = NaN;
+         flags = 0;
+         safe = 0;
+         initMap();
+         state = States.game;
+         break;
+      }
+   }
+   cycle();
+}
+//-----------------------------------------------------------------------------
+
+
+var draw = function () {
+   c.clearRect(0, 0, canvas.width, canvas.height);
+   switch (state) {
+   case States.game:
+   case States.gameover:
+      drawScores();
+      drawBoard();
+      break;
+   case States.win:
+      drawScores();
+      drawBoard();
+      drawWin();
+      break;
+   }
+}
+
+
+var update = function () {
+   switch(state) {
+   case States.game:
+      if (start) {
+         time = new Date();
+      }
+      break;
+   }
+}
+
+
+var cycle = function () {
+   update();
+   draw();
+}
+
+
+var init = function () {
+   canvas = document.getElementById('canvas');
+   c = canvas.getContext('2d');
+   caseWidth = canvas.width / casesWidth;
+   caseHeight = (canvas.height - 60) / casesHeight;
+
+   canvas.addEventListener('mouseup', mouseup, false);
+
+   start = false;
+
+   interval = setInterval(cycle, 1000);
+   cycle();
+}
+
+
+document.addEventListener('DOMContentLoaded', init, false);
+</script>
+
+</head>
+<body oncontextmenu="return false;">
+
+<div style="margin: auto; width: 800px;"><canvas id="canvas" width="800" height="600"></canvas></div>
+
+</body>
+</html>
